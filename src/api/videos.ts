@@ -4,9 +4,9 @@ import { type ApiConfig } from "../config";
 import { S3Client, type BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
-import { getVideo, updateVideo } from "../db/videos";
+import { getVideo, updateVideo, type Video } from "../db/videos";
 import { randomBytes } from "crypto";
-import { getVideoAspectRatio, processVideoForFastStart } from "./video-meta";
+import { generatePresignedURL, getVideoAspectRatio, processVideoForFastStart } from "./video-meta";
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
@@ -57,7 +57,6 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
   // Get aspect ratio
   const aspectRatio = await getVideoAspectRatio(tempFilePath);
-  console.log(aspectRatio);
 
   // Process video for fast start
   const processedFilePath = await processVideoForFastStart(tempFilePath);
@@ -78,8 +77,16 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   })
 
   // Update video url in database
-  video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${fullPath}`
+  video.videoURL = fullPath;
   updateVideo(cfg.db, video);
 
   return respondWithJSON(200, null);
+}
+
+export async function dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
+  if (video.videoURL === undefined) {
+    return video;
+  }
+  video.videoURL = await generatePresignedURL(cfg, video.videoURL, 5 * 60);
+  return video
 }

@@ -65,3 +65,79 @@ export async function handlerVideosRetrieve(cfg: ApiConfig, req: Request) {
   const videos = getVideos(cfg.db, userID);
   return respondWithJSON(200, videos);
 }
+
+
+export async function getVideoAspectRatio(filePath: string): Promise<"landscape" | "portrait" | "other"> {
+  const proc = Bun.spawn(
+    [
+      "ffprobe",
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width,height",
+      "-of", "json",
+      filePath
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe"
+    }
+  );
+
+  // Get stdout and stderr as strings
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  if (stderr) {
+    throw new Error(`ffprobe error: ${stderr}`);
+  }
+  const output = JSON.parse(stdout);
+  if (!output || !output.streams || output.streams.length === 0) {
+    throw new Error("No video stream found in the file");
+  }
+  const { width, height } = output.streams[0];
+  if (typeof width !== "number" || typeof height !== "number") {
+    throw new Error("Invalid width or height in video stream");
+  }
+  
+
+  const aspectRatio = width / height;
+
+  if (aspectRatio > 1.6 && aspectRatio < 1.8) {
+    return "landscape";
+  } else if (aspectRatio > 0.5 && aspectRatio < 0.6) {
+    return "portrait";
+  } else {
+    return "other";
+  }
+}
+
+export async function processVideoForFastStart(inputFilePath: string) {
+  const processedFilePath = `${inputFilePath}.processed.mp4`;
+  
+  const process = Bun.spawn(
+    [
+      "ffmpeg",
+      "-i",
+      inputFilePath,
+      "-movflags",
+      "faststart",
+      "-map_metadata",
+      "0",
+      "-codec",
+      "copy",
+      "-f",
+      "mp4",
+      processedFilePath,
+    ],
+    { stderr: "pipe" },
+  );
+
+  const errorText = await new Response(process.stderr).text();
+  const exitCode = await process.exited;
+
+
+  if (exitCode !== 0) {
+    throw new Error(`FFmpeg error: ${errorText}`);
+  }
+
+  return processedFilePath;
+}

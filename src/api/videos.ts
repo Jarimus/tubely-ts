@@ -6,6 +6,7 @@ import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
 import { getVideo, updateVideo } from "../db/videos";
 import { randomBytes } from "crypto";
+import { getVideoAspectRatio, processVideoForFastStart } from "./video-meta";
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
@@ -54,17 +55,30 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const tempFilePath = `/tmp/${tempFileName}`
   await Bun.write(tempFilePath, file);
 
-  const s3File = S3Client.file(`${tempFileName}`);
-  await s3File.write(Bun.file(tempFilePath), { type: mediaType });
+  // Get aspect ratio
+  const aspectRatio = await getVideoAspectRatio(tempFilePath);
+  console.log(aspectRatio);
 
-  // Delete the temp file
+  // Process video for fast start
+  const processedFilePath = await processVideoForFastStart(tempFilePath);
+
+  // Upload to bucket
+  const fullPath = `${aspectRatio}/${tempFileName}`
+  const s3File = S3Client.file(fullPath);
+  await s3File.write(Bun.file(processedFilePath), { type: mediaType });
+
+  // Delete the temp file and the processed file
+  fs.unlink(processedFilePath, (err) => {
+    if (err) throw err;
+    console.log(`Processed temp file at path "${processedFilePath}" deleted.`)
+  });
   fs.unlink(tempFilePath, (err) => {
     if (err) throw err;
-    console.log(`File at path "${tempFilePath}" deleted.`)
+    console.log(`Temp file at path "${tempFilePath}" deleted.`)
   })
 
   // Update video url in database
-  video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${tempFileName}`
+  video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${fullPath}`
   updateVideo(cfg.db, video);
 
   return respondWithJSON(200, null);

@@ -6,7 +6,7 @@ import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
 import { getVideo, updateVideo, type Video } from "../db/videos";
 import { randomBytes } from "crypto";
-import { generatePresignedURL, getVideoAspectRatio, processVideoForFastStart } from "./video-meta";
+import { getVideoAspectRatio, processVideoForFastStart } from "./video-meta";
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
 
@@ -77,16 +77,9 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   })
 
   // Update video url in database
-  video.videoURL = fullPath;
+  console.log(fullPath);
+  video.videoURL = `https://${cfg.s3CfDistribution}/${fullPath}`;
   updateVideo(cfg.db, video);
 
   return respondWithJSON(200, null);
-}
-
-export async function dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
-  if (video.videoURL === undefined) {
-    return video;
-  }
-  video.videoURL = await generatePresignedURL(cfg, video.videoURL, 5 * 60);
-  return video
 }
